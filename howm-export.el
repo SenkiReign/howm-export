@@ -5,9 +5,9 @@
   :type 'integer
   :group 'howm)
 
-(defcustom howm-export-image-max-height 600
-  "Maximum height for exported images in pixels."
-  :type 'integer
+(defcustom howm-export-open-after-export t
+  "If non-nil, open the exported HTML file in the default browser."
+  :type 'boolean
   :group 'howm)
 
 (defcustom howm-export-css
@@ -258,6 +258,8 @@ If OUTPUT-FILE is nil, use INPUT-FILE with .html extension."
       (insert html))
     
     (message "Exported to: %s" output)
+    (when howm-export-open-after-export
+      (browse-url-of-file output))
     output))
 
 (defun howm-export-current-buffer ()
@@ -300,6 +302,8 @@ This is useful when using outline-mode, org-mode folding, or selective display."
       (insert html))
     
     (message "Exported visible region to: %s" output-file)
+    (when howm-export-open-after-export
+      (browse-url-of-file output-file))
     output-file))
 
 (defun howm-export-region (start end)
@@ -335,6 +339,8 @@ This is useful when using outline-mode, org-mode folding, or selective display."
           (insert html))
         
         (message "Exported region to: %s" output-file)
+        (when howm-export-open-after-export
+          (browse-url-of-file output-file))
         output-file)
     (error "No region selected")))
 
