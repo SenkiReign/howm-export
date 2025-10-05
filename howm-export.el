@@ -5,6 +5,11 @@
   :type 'integer
   :group 'howm)
 
+(defcustom howm-export-image-max-height 600
+  "Maximum height for exported images in pixels."
+  :type 'integer
+  :group 'howm)
+
 (defcustom howm-export-open-after-export t
   "If non-nil, open the exported HTML file in the default browser."
   :type 'boolean
@@ -30,6 +35,8 @@
     padding-bottom: 10px;
     margin-top: 10px;
     margin-bottom: 15px;
+    font-size: 1.1em;
+    font-weight: 600;
   }
   a {
     color: #2c3e50;
@@ -101,6 +108,68 @@
     (cons (round (* orig-width scale))
           (round (* orig-height scale)))))
 
+(defun howm-export-buffer-substring-to-html (start end)
+  "Parse howm text between START and END and convert to HTML."
+  (let ((html "")
+        (base-dir default-directory))
+    (save-excursion
+      (goto-char start)
+      (while (< (point) end)
+        (let ((line (buffer-substring-no-properties
+                     (line-beginning-position)
+                     (min (line-end-position) end))))
+          
+          (cond
+           ;; Headers: = Header
+           ((string-match "^=\\s-*\\(.+\\)" line)
+            (setq html (concat html (format "<h1>%s</h1>\n"
+                                           (match-string 1 line)))))
+           
+           ;; Links: >>>url or >>>description
+           ((string-match "^>>>\\s-*\\(.+\\)" line)
+            (let ((link (string-trim (match-string 1 line))))
+              (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
+                                             link link)))))
+           
+           ;; File links: file://path
+           ((string-match "^file://\\(.+\\)" line)
+            (let* ((file-path (string-trim (match-string 1 line)))
+                   (full-path (expand-file-name file-path base-dir))
+                   (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path)))
+              (if is-image
+                  (let* ((dims (howm-export-get-image-dimensions full-path))
+                         (scaled (when dims
+                                   (howm-export-calculate-scaled-dimensions
+                                    (car dims) (cdr dims)
+                                    howm-export-image-max-width
+                                    howm-export-image-max-height))))
+                    (setq html (concat html
+                                      (format "<div class=\"image-container\"><img src=\"%s\"%s /></div>\n"
+                                              file-path
+                                              (if scaled
+                                                  (format " width=\"%d\" height=\"%d\""
+                                                         (car scaled) (cdr scaled))
+                                                "")))))
+                (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
+                                               file-path file-path))))))
+           
+           ;; Dates: [2024-01-01] or [2024-01-01 12:30]
+           ((string-match "\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]" line)
+            (setq html (concat html (format "<div class=\"date\">%s</div>\n"
+                                           (match-string 1 line)))))
+           
+           ;; Empty lines
+           ((string-match "^\\s-*$" line)
+            (setq html (concat html "<br/>\n")))
+           
+           ;; Regular text
+           (t
+            (setq html (concat html (format "<p>%s</p>\n"
+                                           (string-trim line)))))))
+        
+        (forward-line 1)))
+    html))
+
 (defun howm-export-parse-file-to-html (file)
   "Parse howm FILE and convert to HTML."
   (with-temp-buffer
@@ -166,68 +235,6 @@
       
       html)))
 
-(defun howm-export-buffer-substring-to-html (start end)
-  "Parse howm text between START and END and convert to HTML."
-  (let ((html "")
-        (base-dir default-directory))
-    (save-excursion
-      (goto-char start)
-      (while (< (point) end)
-        (let ((line (buffer-substring-no-properties
-                     (line-beginning-position)
-                     (min (line-end-position) end))))
-          
-          (cond
-           ;; Headers: = Header
-           ((string-match "^=\\s-*\\(.+\\)" line)
-            (setq html (concat html (format "<h1>%s</h1>\n"
-                                           (match-string 1 line)))))
-           
-           ;; Links: >>>url or >>>description
-           ((string-match "^>>>\\s-*\\(.+\\)" line)
-            (let ((link (string-trim (match-string 1 line))))
-              (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
-                                             link link)))))
-           
-           ;; File links: file://path
-           ((string-match "^file://\\(.+\\)" line)
-            (let* ((file-path (string-trim (match-string 1 line)))
-                   (full-path (expand-file-name file-path base-dir))
-                   (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path)))
-              (if is-image
-                  (let* ((dims (howm-export-get-image-dimensions full-path))
-                         (scaled (when dims
-                                   (howm-export-calculate-scaled-dimensions
-                                    (car dims) (cdr dims)
-                                    howm-export-image-max-width
-                                    howm-export-image-max-height))))
-                    (setq html (concat html
-                                      (format "<div class=\"image-container\"><img src=\"%s\"%s /></div>\n"
-                                              file-path
-                                              (if scaled
-                                                  (format " width=\"%d\" height=\"%d\""
-                                                         (car scaled) (cdr scaled))
-                                                "")))))
-                (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
-                                               file-path file-path))))))
-           
-           ;; Dates: [2024-01-01] or [2024-01-01 12:30]
-           ((string-match "\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]" line)
-            (setq html (concat html (format "<div class=\"date\">%s</div>\n"
-                                           (match-string 1 line)))))
-           
-           ;; Empty lines
-           ((string-match "^\\s-*$" line)
-            (setq html (concat html "<br/>\n")))
-           
-           ;; Regular text
-           (t
-            (setq html (concat html (format "<p>%s</p>\n"
-                                           (string-trim line)))))))
-        
-        (forward-line 1)))
-    html))
-
 (defun howm-export-to-html (input-file &optional output-file)
   "Export howm INPUT-FILE to HTML.
 If OUTPUT-FILE is nil, use INPUT-FILE with .html extension."
@@ -259,7 +266,7 @@ If OUTPUT-FILE is nil, use INPUT-FILE with .html extension."
     
     (message "Exported to: %s" output)
     (when howm-export-open-after-export
-      (browse-url-of-file output))
+      (browse-url (concat "file://" (expand-file-name output))))
     output))
 
 (defun howm-export-current-buffer ()
@@ -303,7 +310,7 @@ This is useful when using outline-mode, org-mode folding, or selective display."
     
     (message "Exported visible region to: %s" output-file)
     (when howm-export-open-after-export
-      (browse-url-of-file output-file))
+      (browse-url (concat "file://" (expand-file-name output-file))))
     output-file))
 
 (defun howm-export-region (start end)
@@ -340,7 +347,7 @@ This is useful when using outline-mode, org-mode folding, or selective display."
         
         (message "Exported region to: %s" output-file)
         (when howm-export-open-after-export
-          (browse-url-of-file output-file))
+          (browse-url (concat "file://" (expand-file-name output-file))))
         output-file)
     (error "No region selected")))
 
