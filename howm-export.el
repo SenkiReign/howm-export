@@ -25,10 +25,6 @@
     color: #333;
     background: white;
   }
-  .content {
-    background: white;
-    padding: 0;
-  }
   h1 {
     color: #000;
     border-bottom: 3px solid #000;
@@ -37,6 +33,19 @@
     margin-bottom: 15px;
     font-size: 1.1em;
     font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header-title {
+    flex: 1;
+  }
+  h1 .date {
+    margin: 0;
+    margin-left: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+    padding: 4px 12px;
   }
   a {
     color: #2c3e50;
@@ -60,8 +69,6 @@
     font-size: 0.85em;
     font-weight: 600;
     padding: 4px 12px;
-    border: 2px solid #000;
-    border-radius: 4px;
     margin: 10px 0;
   }
   .image-container {
@@ -76,13 +83,6 @@
   }
   p {
     margin: 8px 0;
-  }
-  pre {
-    background: #2c3e50;
-    color: #ecf0f1;
-    padding: 15px;
-    border-radius: 4px;
-    overflow-x: auto;
   }"
   "CSS styles for exported HTML."
   :type 'string
@@ -118,60 +118,75 @@
                     (file-name-base buffer-file-name)
                   "Howm Export"))
          (html "")
-         (base-dir default-directory))
+         (base-dir default-directory)
+         (lines (split-string (buffer-substring-no-properties (point-min) (point-max)) "\n"))
+         (i 0)
+         (len (length lines)))
     
-    (save-excursion
-      (goto-char (point-min))
-      (while (< (point) (point-max))
-        (let ((line (buffer-substring-no-properties
-                     (line-beginning-position)
-                     (min (line-end-position) (point-max)))))
-          
-          (cond
-           ;; Headers: = Header
-           ((string-match "^=\\s-*\\(.+\\)" line)
-            (setq html (concat html (format "<h1>%s</h1>\n" (match-string 1 line)))))
-           
-           ;; Links: >>>url
-           ((string-match "^>>>\\s-*\\(.+\\)" line)
-            (let ((link (string-trim (match-string 1 line))))
-              (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n" link link)))))
-           
-           ;; File links: file://path
-           ((string-match "^file://\\(.+\\)" line)
-            (let* ((file-path (string-trim (match-string 1 line)))
-                   (full-path (expand-file-name file-path base-dir))
-                   (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path)))
-              (if is-image
-                  (let* ((dims (howm-export-get-image-dimensions full-path))
-                         (scaled (when dims
-                                   (howm-export-calculate-scaled-dimensions
-                                    (car dims) (cdr dims)
-                                    howm-export-image-max-width
-                                    howm-export-image-max-height))))
-                    (setq html (concat html
-                                      (format "<div class=\"image-container\"><img src=\"%s\"%s /></div>\n"
-                                              file-path
-                                              (if scaled
-                                                  (format " width=\"%d\" height=\"%d\""
-                                                         (car scaled) (cdr scaled))
-                                                "")))))
-                (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
-                                               file-path file-path))))))
-           
-           ;; Dates: [2024-01-01] or [2024-01-01 12:30]
-           ((string-match "\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]" line)
-            (setq html (concat html (format "<div class=\"date\">%s</div>\n" (match-string 1 line)))))
-           
-           ;; Empty lines
-           ((string-match "^\\s-*$" line)
-            (setq html (concat html "<br/>\n")))
-           
-           ;; Regular text
-           (t
-            (setq html (concat html (format "<p>%s</p>\n" (string-trim line)))))))
-        
-        (forward-line 1)))
+    (while (< i len)
+      (let ((line (nth i lines)))
+        (cond
+         ;; Headers: = Header
+         ((string-match "^=\\s-*\\(.+\\)" line)
+          (let ((header-text (match-string 1 line))
+                (next-line (when (< (+ i 1) len) (nth (+ i 1) lines))))
+            (if (and next-line 
+                     (string-match "^\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]" next-line))
+                (progn
+                  (let* ((date-str (match-string 1 next-line))
+                         (rest-of-line (substring next-line (match-end 0)))
+                         (desc (string-trim rest-of-line)))
+                    (setq html (concat html 
+                                      (format "<h1><span class=\"header-title\">%s</span><span class=\"date\">%s</span></h1>\n"
+                                             header-text date-str)))
+                    (when (and desc (> (length desc) 0))
+                      (setq html (concat html (format "<p>%s</p>\n" desc)))))
+                  (setq i (+ i 1)))
+              (setq html (concat html (format "<h1><span class=\"header-title\">%s</span></h1>\n" header-text))))))
+         
+         ;; Links: >>>url
+         ((string-match "^>>>\\s-*\\(.+\\)" line)
+          (let ((link (string-trim (match-string 1 line))))
+            (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n" link link)))))
+         
+         ;; File links: file://path
+         ((string-match "^file://\\(.+\\)" line)
+          (let* ((file-path (string-trim (match-string 1 line)))
+                 (full-path (expand-file-name file-path base-dir))
+                 (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path)))
+            (if is-image
+                (let* ((dims (howm-export-get-image-dimensions full-path))
+                       (scaled (when dims
+                                 (howm-export-calculate-scaled-dimensions
+                                  (car dims) (cdr dims)
+                                  howm-export-image-max-width
+                                  howm-export-image-max-height))))
+                  (setq html (concat html
+                                    (format "<div class=\"image-container\"><img src=\"%s\"%s /></div>\n"
+                                            file-path
+                                            (if scaled
+                                                (format " width=\"%d\" height=\"%d\""
+                                                       (car scaled) (cdr scaled))
+                                              "")))))
+              (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
+                                             file-path file-path))))))
+         
+         ;; Dates: [2024-01-01] text (standalone)
+         ((string-match "^\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]\\s-*\\(.+\\)" line)
+          (setq html (concat html 
+                            (format "<div class=\"date\">%s</div>\n<p>%s</p>\n"
+                                   (match-string 1 line)
+                                   (match-string 3 line)))))
+         
+         ;; Empty lines
+         ((string-match "^\\s-*$" line)
+          (setq html (concat html "<br/>\n")))
+         
+         ;; Regular text
+         (t
+          (setq html (concat html (format "<p>%s</p>\n" (string-trim line)))))))
+      
+      (setq i (+ i 1)))
     
     (let ((full-html (format "<!DOCTYPE html>
 <html lang=\"en\">
