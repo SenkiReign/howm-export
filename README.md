@@ -1,5 +1,5 @@
 # howm-export
-Html export from Howm
+Html export from Howm for people that wanna stick with default .txt format.
 
 - Works with combined and narrow views
 - Image support
