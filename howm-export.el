@@ -30,7 +30,6 @@
     font-size: 1em;
     font-weight: bold;
     letter-spacing: 0.15em;
-    text-transform: uppercase;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -60,13 +59,15 @@
   a:hover { text-decoration: underline; }
   .link-block {
     font-size: 0.85em;
+    font-weight: bold;
     color: #666;
     margin: 0.4rem 0 0.4rem 1.5em;
     padding: 0;
     background: none;
     border: none;
   }
-  .link-block::before { content: '\2192  '; }
+  .link-block.link-out::before { content: '\2192  '; }
+  .link-block.link-in::before { content: '\2190  '; }
   .date {
     display: inline-block;
     font-size: 0.75em;
@@ -95,6 +96,15 @@
   "CSS styles for exported HTML."
   :type 'string
   :group 'howm)
+
+(defun howm-export--escape-html (str)
+  "Escape HTML special characters in STR so raw note text renders safely."
+  (let ((s (or str "")))
+    (setq s (replace-regexp-in-string "&" "&amp;" s))
+    (setq s (replace-regexp-in-string "<" "&lt;" s))
+    (setq s (replace-regexp-in-string ">" "&gt;" s))
+    (setq s (replace-regexp-in-string "\"" "&quot;" s))
+    s))
 
 (defun howm-export-get-image-dimensions (file)
   "Get dimensions of image FILE."
@@ -144,14 +154,14 @@ the next such line, or at the end of the buffer."
         (cond
          ;; Headers: = Header
          ((string-match "^=\\s-*\\(.+\\)" line)
-          (let ((header-text (match-string 1 line))
+          (let ((header-text (howm-export--escape-html (match-string 1 line)))
                 (next-line (when (< (+ i 1) len) (nth (+ i 1) lines))))
             (if (and next-line
                      (string-match "^\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]" next-line))
                 (progn
-                  (let* ((date-str (match-string 1 next-line))
+                  (let* ((date-str (howm-export--escape-html (match-string 1 next-line)))
                          (rest-of-line (substring next-line (match-end 0)))
-                         (desc (string-trim rest-of-line)))
+                         (desc (howm-export--escape-html (string-trim rest-of-line))))
                     (setq html (concat html
                                        (format "<h1><span class=\"header-title\">%s</span><span class=\"date\">%s</span></h1>\n<hr class=\"header-divider\"/>\n"
                                                header-text date-str)))
@@ -160,16 +170,24 @@ the next such line, or at the end of the buffer."
                   (setq i (+ i 1)))
               (setq html (concat html (format "<h1><span class=\"header-title\">%s</span></h1>\n<hr class=\"header-divider\"/>\n" header-text))))))
 
-         ;; Links: >>>url
+         ;; Outgoing links: >>>url
          ((string-match "^>>>\\s-*\\(.+\\)" line)
-          (let ((link (string-trim (match-string 1 line))))
-            (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n" link link)))))
+          (let* ((link (string-trim (match-string 1 line)))
+                 (esc (howm-export--escape-html link)))
+            (setq html (concat html (format "<div class=\"link-block link-out\"><a href=\"%s\">%s</a></div>\n" esc esc)))))
+
+         ;; Incoming links: <<<url
+         ((string-match "^<<<\\s-*\\(.+\\)" line)
+          (let* ((link (string-trim (match-string 1 line)))
+                 (esc (howm-export--escape-html link)))
+            (setq html (concat html (format "<div class=\"link-block link-in\"><a href=\"%s\">%s</a></div>\n" esc esc)))))
 
          ;; File links: file://path
          ((string-match "^file://\\(.+\\)" line)
           (let* ((file-path (string-trim (match-string 1 line)))
                  (full-path (expand-file-name file-path base-dir))
-                 (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path)))
+                 (is-image (string-match-p "\\.\\(png\\|jpe?g\\|gif\\|svg\\|webp\\)\\'" file-path))
+                 (esc-path (howm-export--escape-html file-path)))
             (if is-image
                 (let* ((dims (howm-export-get-image-dimensions full-path))
                        (scaled (when dims
@@ -179,20 +197,20 @@ the next such line, or at the end of the buffer."
                                   howm-export-image-max-height))))
                   (setq html (concat html
                                      (format "<div class=\"image-container\"><img src=\"%s\"%s /></div>\n"
-                                             file-path
+                                             esc-path
                                              (if scaled
                                                  (format " width=\"%d\" height=\"%d\""
                                                          (car scaled) (cdr scaled))
                                                "")))))
               (setq html (concat html (format "<div class=\"link-block\"><a href=\"%s\">%s</a></div>\n"
-                                             file-path file-path))))))
+                                             esc-path esc-path))))))
 
          ;; Dates: [2024-01-01] text (standalone)
          ((string-match "^\\[\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\(?: [0-9]\\{2\\}:[0-9]\\{2\\}\\)?\\)\\]\\s-*\\(.+\\)" line)
           (setq html (concat html
                              (format "<div class=\"date\">%s</div>\n<p>%s</p>\n"
-                                     (match-string 1 line)
-                                     (match-string 3 line)))))
+                                     (howm-export--escape-html (match-string 1 line))
+                                     (howm-export--escape-html (match-string 3 line))))))
 
          ;; Empty lines
          ((string-match "^\\s-*$" line)
@@ -200,7 +218,7 @@ the next such line, or at the end of the buffer."
 
          ;; Regular text
          (t
-          (setq html (concat html (format "<p>%s</p>\n" (string-trim line)))))))
+          (setq html (concat html (format "<p>%s</p>\n" (howm-export--escape-html (string-trim line))))))))
 
       (setq i (+ i 1)))
     html))
